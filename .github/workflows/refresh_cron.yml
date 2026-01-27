@@ -1,0 +1,18 @@
+name: Auto Refresh NIFTY Data
+
+on:
+  schedule:
+    # Every 5 minutes from 03:00 to 10:00 UTC (approx 8:30 AM to 3:30 PM IST)
+    # Mon-Fri
+    - cron: '*/5 3-10 * * 1-5'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  refresh_data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Backend Refresh (NIFTY)
+        run: |
+          curl -X POST "https://oi-dashboard-backend.onrender.com/api/refresh" \
+          -H "Content-Type: application/json" \
+          -d '{"symbol": "NIFTY"}'
