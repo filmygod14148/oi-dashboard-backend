@@ -68,6 +68,7 @@ const getBrowser = async () => {
 
     // Launch new browser
     browserLaunchPromise = puppeteer.launch({
+        executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable',
         headless: 'new',
         args: [
             '--no-sandbox',
