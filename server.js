@@ -29,18 +29,18 @@ app.use(express.json());
 let isFetching = false;
 const pollNSEData = async () => {
     if (isFetching) {
-        console.log('🔄 Previous fetch still in progress, skipping...');
+        // console.log('🔄 Previous fetch still in progress, skipping...');
         return;
     }
 
     isFetching = true;
-    console.log('\n🔄 Polling NSE Data...');
+    // console.log('\n🔄 Polling NSE Data...');
 
     try {
         // Sequential fetching for better stability
         await fetchNSEData('NIFTY');
         await fetchNSEData('BANKNIFTY');
-        console.log('✓ Polling cycle complete');
+        // console.log('✓ Polling cycle complete');
     } catch (error) {
         console.error('✗ Polling cycle failed:', error.message);
     } finally {

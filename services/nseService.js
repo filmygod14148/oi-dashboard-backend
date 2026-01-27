@@ -86,7 +86,7 @@ const getBrowser = async () => {
     }).then(browser => {
         browserInstance = browser;
         browserLaunchPromise = null;
-        console.log('✓ Browser instance created');
+        // console.log('✓ Browser instance created');
 
         // Handle browser disconnect
         browser.on('disconnected', () => {
@@ -109,7 +109,7 @@ const closeBrowser = async () => {
         try {
             await browserInstance.close();
             browserInstance = null;
-            console.log('✓ Browser instance closed');
+            // console.log('✓ Browser instance closed');
         } catch (err) {
             console.error('Error closing browser:', err.message);
         }
@@ -126,7 +126,7 @@ const waitForRateLimit = async () => {
 
     if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
         const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
-        console.log(`Rate limiting: waiting ${waitTime}ms`);
+        // console.log(`Rate limiting: waiting ${waitTime}ms`);
         await sleep(waitTime);
     }
 
@@ -158,7 +158,7 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
 
     let page;
     try {
-        console.log(`[${symbol}] Starting fetch (attempt ${retryCount + 1}/${MAX_RETRIES + 1})...`);
+        // console.log(`[${symbol}] Starting fetch (attempt ${retryCount + 1}/${MAX_RETRIES + 1})...`);
 
         // Use shared browser instance
         const browser = await getBrowser();
@@ -214,7 +214,7 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
             { timeout: 25000 }
         ).catch(e => null);
 
-        console.log(`[${symbol}] Navigating to option chain page...`);
+        // console.log(`[${symbol}] Navigating to option chain page...`);
 
         // Navigate with reduced timeout
         try {
@@ -239,11 +239,11 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
 
         if (response) {
             try { require('fs').appendFileSync('scraper_debug.log', `[${symbol}] [NODE] Intercepted API response\n`); } catch (e) { }
-            console.log(`[${symbol}] ✓ Intercepted API response`);
+            // console.log(`[${symbol}] ✓ Intercepted API response`);
             try {
                 const json = await response.json();
                 if (json && json.records) {
-                    console.log(`[${symbol}] ✓ Successfully captured JSON from network`);
+                    // console.log(`[${symbol}] ✓ Successfully captured JSON from network`);
                     await page.close();
                     const saveResult = await saveDataWithDifference(symbol, json);
                     // Return explicit no-change marker to the caller so it does not treat this as saved
@@ -299,7 +299,7 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
                     if (h1) headers = getHeaders(h1);
                 }
 
-                console.log('Detected Headers:', JSON.stringify(headers));
+                // console.log('Detected Headers:', JSON.stringify(headers));
 
                 // Helper to find index by keyword
                 const getFirstIdx = (keywords) => headers.findIndex(h => keywords.some(k => h.toLowerCase() === k.toLowerCase() || h.toLowerCase().includes(k.toLowerCase())));
@@ -334,7 +334,7 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
                 };
 
                 const rows = Array.from(table.querySelectorAll('tbody tr'));
-                console.log('Rows found:', rows.length);
+                // console.log('Rows found:', rows.length);
                 const records = [];
 
                 rows.forEach((row, i) => {
@@ -346,7 +346,7 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
 
                     if (i === 0) {
                         const rawCIV = idxCIV > -1 ? cols[idxCIV]?.innerText : 'N/A';
-                        console.log('First Row Call IV raw:', rawCIV);
+                        // console.log('First Row Call IV raw:', rawCIV);
                     }
 
                     const c_OI = val(idxCOI > -1 ? idxCOI : 1);
@@ -448,7 +448,7 @@ const saveDataWithDifference = async (symbol, dataPayload) => {
 
         // STRICT TIMESTAMP CHECK: If NSE timestamp hasn't changed, the data hasn't changed.
         if (dataPayload.nseTimestamp && lastRecord && lastRecord.data && lastRecord.data.nseTimestamp === dataPayload.nseTimestamp) {
-            console.log(`[${symbol}] NSE Timestamp unchanged (${dataPayload.nseTimestamp}). Skipping Save.`);
+            // console.log(`[${symbol}] NSE Timestamp unchanged (${dataPayload.nseTimestamp}). Skipping Save.`);
             return { status: 'no_change' };
         }
 
@@ -481,19 +481,19 @@ const saveDataWithDifference = async (symbol, dataPayload) => {
                     // Also ignore tiny changes (noise) < 5 contracts
                     if (Math.abs(prevCE_OI - currCE_OI) > 5) {
                         hasOIDifference = true;
-                        console.log(`[${symbol}] Save Trigger: Strike ${curr.strikePrice} CE OI changed ${prevCE_OI} -> ${currCE_OI}`);
+                        // console.log(`[${symbol}] Save Trigger: Strike ${curr.strikePrice} CE OI changed ${prevCE_OI} -> ${currCE_OI}`);
                         break;
                     }
                     if (Math.abs(prevPE_OI - currPE_OI) > 5) {
                         hasOIDifference = true;
-                        console.log(`[${symbol}] Save Trigger: Strike ${curr.strikePrice} PE OI changed ${prevPE_OI} -> ${currPE_OI}`);
+                        // console.log(`[${symbol}] Save Trigger: Strike ${curr.strikePrice} PE OI changed ${prevPE_OI} -> ${currPE_OI}`);
                         break;
                     }
                 } else {
                     // New meaningful strike appeared (Must have significant OI)
                     if ((curr.CE?.openInterest || 0) > 100 || (curr.PE?.openInterest || 0) > 100) {
                         hasOIDifference = true;
-                        console.log(`[${symbol}] Save Trigger: New Strike ${curr.strikePrice} appeared with significant OI`);
+                        // console.log(`[${symbol}] Save Trigger: New Strike ${curr.strikePrice} appeared with significant OI`);
                         break;
                     }
                 }
@@ -590,7 +590,7 @@ const saveDataWithDifference = async (symbol, dataPayload) => {
             data: dataPayload
         });
         await newData.save();
-        console.log(`Saved to DB with computed differences for ${symbol}`);
+        // console.log(`Saved to DB with computed differences for ${symbol}`);
 
         // Return the filtered data for comparison
         return dataPayload.filtered;
