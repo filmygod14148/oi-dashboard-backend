@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: oi-dashboard-backend
+    env: node
+    plan: free # Can be changed to 'pro' for more memory/CPU
+    rootDirectory: backend # Tell Render to look inside the backend folder
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: NODE_ENV
+        value: production
+      - key: USE_MOCK_DATA
+        value: false
+      - key: MONGODB_URI
+        fromValue: ${MONGODB_URI} # User must provide this in Render dashboard
+      - key: NSE_URL
+        value: https://www.nseindia.com/api/option-chain-indices?symbol=
+      - key: OPTION_CHAIN_URL
+        value: https://www.nseindia.com/option-chain

@@ -1,0 +1,14 @@
+node_modules/
+.env
+*.log
+scraper_debug.log
+.DS_Store
+Thumbs.db
+backend_debug.log
+check_db.js
+test_atlas_connection.js
+test_fetch.js
+manual_fetch.js
+check_cron.js
+test_lightweight_fetch.js
+test_backend_health.js
