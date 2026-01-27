@@ -43,7 +43,7 @@ router.get('/history', async (req, res) => {
 
 // Manual Refresh (Supports POST and GET for external pingers)
 router.all('/refresh', async (req, res) => {
-    const symbol = req.body.symbol || req.query.symbol || 'NIFTY';
+    const symbol = req.body?.symbol || req.query?.symbol || 'NIFTY';
 
     if (!symbol) return res.status(400).json({ msg: 'Symbol required' });
 
