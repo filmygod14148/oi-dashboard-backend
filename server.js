@@ -1,7 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const cron = require('node-cron');
 const dotenv = require('dotenv');
 const apiRoutes = require('./routes/api');
 const { fetchNSEData, closeBrowser } = require('./services/nseService');
@@ -25,28 +24,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Background Polling Logic
-let isFetching = false;
-const pollNSEData = async () => {
-    if (isFetching) {
-        // console.log('🔄 Previous fetch still in progress, skipping...');
-        return;
-    }
-
-    isFetching = true;
-    // console.log('\n🔄 Polling NSE Data...');
-
-    try {
-        // Sequential fetching for better stability
-        await fetchNSEData('NIFTY');
-        await fetchNSEData('BANKNIFTY');
-        // console.log('✓ Polling cycle complete');
-    } catch (error) {
-        console.error('✗ Polling cycle failed:', error.message);
-    } finally {
-        isFetching = false;
-    }
-};
+// Background Polling Logic: Removed for serverless/manual refresh mode
 
 // Start Server Immediately to avoid Render port timeout
 const server = app.listen(PORT, '0.0.0.0', () => {
@@ -55,15 +33,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`  Environment: ${process.env.NODE_ENV || 'production'}`);
     console.log(`  Mock Data: ${process.env.USE_MOCK_DATA}`);
     console.log(`========================================`);
-
-    // Start background polling ONLY after the server is listening
-    console.log(`✓ Background polling will start in 5 seconds...`);
-    setTimeout(() => {
-        const POLLING_INTERVAL = 60000;
-        setInterval(pollNSEData, POLLING_INTERVAL);
-        console.log(`✓ Background polling active (${POLLING_INTERVAL / 1000}s interval)`);
-        pollNSEData(); // Initial fetch
-    }, 5000);
+    console.log(`✓ Manual refresh required via /api/refresh`);
 });
 
 // Database Connection - MongoDB Atlas
