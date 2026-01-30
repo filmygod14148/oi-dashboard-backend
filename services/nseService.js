@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const mongoose = require('mongoose');
 const OIData = require('../models/OIData');
 
 puppeteer.use(StealthPlugin());
@@ -66,9 +67,8 @@ const getBrowser = async () => {
         return await browserLaunchPromise;
     }
 
-    // Launch new browser
-    browserLaunchPromise = puppeteer.launch({
-        executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable',
+    // Launch options for different OS
+    const launchOptions = {
         headless: 'new',
         args: [
             '--no-sandbox',
@@ -77,13 +77,26 @@ const getBrowser = async () => {
             '--disable-accelerated-2d-canvas',
             '--disable-gpu',
             '--window-size=1920,1080',
-            '--disable-blink-features=AutomationControlled'
+            '--disable-blink-features=AutomationControlled',
+            '--disable-http-cache',
+            '--disk-cache-size=0'
         ],
         defaultViewport: {
             width: 1920,
             height: 1080
         }
-    }).then(browser => {
+    };
+
+    // Use CHROME_PATH if provided, otherwise default for OS
+    if (process.env.CHROME_PATH) {
+        launchOptions.executablePath = process.env.CHROME_PATH;
+    } else if (process.platform === 'linux') {
+        launchOptions.executablePath = '/usr/bin/google-chrome-stable';
+    }
+    // On Windows, puppeteer normally finds Chrome/Chromium automatically if installed.
+
+    // Launch new browser
+    browserLaunchPromise = puppeteer.launch(launchOptions).then(browser => {
         browserInstance = browser;
         browserLaunchPromise = null;
         // console.log('✓ Browser instance created');
@@ -160,9 +173,11 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
     try {
         // console.log(`[${symbol}] Starting fetch (attempt ${retryCount + 1}/${MAX_RETRIES + 1})...`);
 
-        // Use shared browser instance
         const browser = await getBrowser();
+        console.log(`[${symbol}] Browser ready. Opening new page...`);
         page = await browser.newPage();
+        await page.setCacheEnabled(false);
+        console.log(`[${symbol}] Page opened. Navigation starting...`);
 
         // Debug Logging
         const fs = require('fs');
@@ -277,15 +292,27 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
                     return null;
                 }
 
-                // Get Spot Price
+                // Get Spot Price (Multiple possible selectors)
                 let underlyingValue = 0;
                 const spotEl = document.querySelector('#equity_underlyingVal') ||
+                    document.querySelector('#underlyingValue') ||
                     document.querySelector('.underlying-value') ||
+                    document.querySelector('#underlyingIndex') ||
                     document.querySelector('span[id*="underlying"]');
 
                 if (spotEl) {
                     const text = spotEl.innerText.replace(/[^0-9.]/g, '');
                     underlyingValue = parseFloat(text);
+                } else {
+                    // Try finding by text content
+                    const allSpans = Array.from(document.querySelectorAll('span, b, p'));
+                    const spotLabel = allSpans.find(s => s.innerText.includes('Underlying Index') || s.innerText.includes('Underlying Value'));
+                    if (spotLabel) {
+                        const nextSibling = spotLabel.nextElementSibling;
+                        if (nextSibling) {
+                            underlyingValue = parseFloat(nextSibling.innerText.replace(/[^0-9.]/g, ''));
+                        }
+                    }
                 }
 
                 // Parse Headers to find indices
@@ -373,8 +400,18 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
                     }
                 });
 
-                const timeEl = document.querySelector('#asondate') || document.querySelector('.run_time');
-                const nseTimestamp = timeEl ? timeEl.innerText.replace('As on ', '').trim() : new Date().toString();
+                const timeEl = document.querySelector('#asondate') ||
+                    document.querySelector('.run_time') ||
+                    document.querySelector('#asOn') ||
+                    document.querySelector('.as-on');
+
+                let nseTimestamp = timeEl ? timeEl.innerText.replace(/As on |IST/g, '').trim() : new Date().toLocaleString();
+
+                // Fallback for timestamp if element not found by ID
+                if (!timeEl) {
+                    const timeLabel = Array.from(document.querySelectorAll('span, label')).find(s => s.innerText.includes('As on'));
+                    if (timeLabel) nseTimestamp = timeLabel.innerText.replace(/As on |IST/g, '').trim();
+                }
 
                 return {
                     records: {
@@ -398,13 +435,12 @@ const fetchNSEData = async (symbol, retryCount = 0) => {
         await page.close();
 
         if (scrapedData && scrapedData.records.data.length > 0) {
-            console.log(`[${symbol}] ✓ Scraped ${scrapedData.records.data.length} records from DOM`);
+            console.log(`[${symbol}] ✓ Scraped ${scrapedData.records.data.length} records. Spot: ${scrapedData.records.underlyingValue}. Sending to DB...`);
             const saveResult = await saveDataWithDifference(symbol, scrapedData);
-            if (saveResult && saveResult.status === 'no_change') {
-                return saveResult;
-            }
+            console.log(`[${symbol}] DB Save attempt finished. Status: ${saveResult?.status || 'saved'}`);
             return saveResult || null;
-        } else {
+        }
+        else {
             console.error(`[${symbol}] ✗ DOM scraping failed - no data found`);
         }
 
@@ -446,10 +482,10 @@ const saveDataWithDifference = async (symbol, dataPayload) => {
         // 1. Get last record to compare
         const lastRecord = await OIData.findOne({ symbol }).sort({ timestamp: -1 });
 
-        // STRICT TIMESTAMP CHECK: If NSE timestamp hasn't changed, the data hasn't changed.
+        // RELAXED TIMESTAMP CHECK: Even if NSE timestamp is same, we still check for Data/Spot changes.
+        // This handles cases where NSE doesn't update 'As on' but Price/OI moves.
         if (dataPayload.nseTimestamp && lastRecord && lastRecord.data && lastRecord.data.nseTimestamp === dataPayload.nseTimestamp) {
-            // console.log(`[${symbol}] NSE Timestamp unchanged (${dataPayload.nseTimestamp}). Skipping Save.`);
-            return { status: 'no_change' };
+            // console.log(`[${symbol}] NSE Timestamp unchanged (${dataPayload.nseTimestamp}). Proceeding to check Data/Spot.`);
         }
 
         // DUPLICATE CHECK: Deep comparison of OI values for every strike
@@ -457,16 +493,24 @@ const saveDataWithDifference = async (symbol, dataPayload) => {
             const prevDataMap = new Map();
             lastRecord.data.records.data.forEach(r => prevDataMap.set(String(r.strikePrice), r));
 
-            let hasOIDifference = false;
+            const prevSpotPrice = lastRecord.data.records?.underlyingValue || 0;
+            const currSpotPrice = dataPayload.records?.underlyingValue || 0;
+
+            // 1. TRIGGER: Spot Price change (Significant for market movement)
+            if (Math.abs(currSpotPrice - prevSpotPrice) > 0.05) {
+                // console.log(`[${symbol}] Save Trigger: Spot Price changed ${prevSpotPrice} -> ${currSpotPrice}`);
+                // Don't return yet, lets let the logic continue
+            }
+
+            let hasMeaningfulDifference = Math.abs(currSpotPrice - prevSpotPrice) > 0.05;
             const newRecords = dataPayload.records?.data || [];
 
             // Get Spot Price to focus detection on relevant strikes
-            const spotPrice = dataPayload.records?.underlyingValue || 0;
-            const rangeLimit = 300; // Check +/- 300 points (approx 6-10 strikes) - STRICTER
+            const rangeLimit = 500; // Expanded to +/- 500 points
 
             for (const curr of newRecords) {
                 // SKIP strikes that are too far away (Deep OTM/ITM noise)
-                if (spotPrice > 0 && Math.abs(curr.strikePrice - spotPrice) > rangeLimit) {
+                if (currSpotPrice > 0 && Math.abs(curr.strikePrice - currSpotPrice) > rangeLimit) {
                     continue;
                 }
 
@@ -477,30 +521,26 @@ const saveDataWithDifference = async (symbol, dataPayload) => {
                     const prevPE_OI = prev.PE?.openInterest || 0;
                     const currPE_OI = curr.PE?.openInterest || 0;
 
-                    // STRICTLY check only OI (Open Interest). Ignore LTP, Volume, etc.
-                    // Also ignore tiny changes (noise) < 5 contracts
-                    if (Math.abs(prevCE_OI - currCE_OI) > 5) {
-                        hasOIDifference = true;
-                        // console.log(`[${symbol}] Save Trigger: Strike ${curr.strikePrice} CE OI changed ${prevCE_OI} -> ${currCE_OI}`);
+                    // Relaxed threshold: 1 instead of 5
+                    if (Math.abs(prevCE_OI - currCE_OI) >= 1) {
+                        hasMeaningfulDifference = true;
                         break;
                     }
-                    if (Math.abs(prevPE_OI - currPE_OI) > 5) {
-                        hasOIDifference = true;
-                        // console.log(`[${symbol}] Save Trigger: Strike ${curr.strikePrice} PE OI changed ${prevPE_OI} -> ${currPE_OI}`);
+                    if (Math.abs(prevPE_OI - currPE_OI) >= 1) {
+                        hasMeaningfulDifference = true;
                         break;
                     }
                 } else {
-                    // New meaningful strike appeared (Must have significant OI)
-                    if ((curr.CE?.openInterest || 0) > 100 || (curr.PE?.openInterest || 0) > 100) {
-                        hasOIDifference = true;
-                        // console.log(`[${symbol}] Save Trigger: New Strike ${curr.strikePrice} appeared with significant OI`);
+                    // New strike appeared
+                    if ((curr.CE?.openInterest || 0) > 0 || (curr.PE?.openInterest || 0) > 0) {
+                        hasMeaningfulDifference = true;
                         break;
                     }
                 }
             }
 
-            if (!hasOIDifference) {
-                // console.log(`[${symbol}] No OI difference found in any strike. Skipping DB Save.`);
+            if (!hasMeaningfulDifference) {
+                // console.log(`[${symbol}] No significant change found. Skipping DB Save.`);
                 return { status: 'no_change' };
             }
         }
@@ -584,13 +624,15 @@ const saveDataWithDifference = async (symbol, dataPayload) => {
         }
 
         // 3. Save
+        console.log(`[DB-Prep] Saving ${symbol} data to ${mongoose.connection.name}. Payload strikes: ${dataPayload.records.data.length}`);
         const newData = new OIData({
             symbol: symbol,
             timestamp: new Date(),
             data: dataPayload
         });
-        await newData.save();
-        // console.log(`Saved to DB with computed differences for ${symbol}`);
+
+        const saveResult = await newData.save();
+        console.log(`[DB-Success] Saved ID: ${saveResult._id} for ${symbol} @ ${saveResult.timestamp}`);
 
         // Return the filtered data for comparison
         return dataPayload.filtered;

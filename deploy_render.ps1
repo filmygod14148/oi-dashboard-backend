@@ -10,7 +10,8 @@ try {
     $owners = Invoke-RestMethod -Uri "https://api.render.com/v1/owners" -Method Get -Headers $headers
     $ownerId = $owners[0].owner.id
     Write-Host "Owner ID: $ownerId"
-} catch {
+}
+catch {
     Write-Error "Failed to fetch owners: $_"
     exit 1
 }
@@ -34,21 +35,17 @@ if (-not $mongoUri) {
 
 # 3. Create Service
 $body = @{
-    name = "oi-dashboard-backend"
-    type = "web_service"
-    repo = "https://github.com/filmygod14148/oi-dashboard-backend"
-    branch = "main"
-    ownerId = $ownerId
+    name           = "oi-dashboard-backend"
+    type           = "web_service"
+    repo           = "https://github.com/filmygod14148/oi-dashboard-backend"
+    branch         = "main"
+    ownerId        = $ownerId
     serviceDetails = @{
-        env = "node"
-        plan = "free"
+        env    = "docker"
+        plan   = "free"
         region = "oregon"
-        envSpecificDetails = @{
-            buildCommand = "npm install"
-            startCommand = "node server.js"
-        }
     }
-    envVars = @(
+    envVars        = @(
         @{ key = "PORT"; value = "5000" },
         @{ key = "NODE_ENV"; value = "production" },
         @{ key = "USE_MOCK_DATA"; value = "false" },
@@ -61,7 +58,8 @@ try {
     $response = Invoke-RestMethod -Uri "https://api.render.com/v1/services" -Method Post -Headers $headers -Body $body
     Write-Host "Service creation successful!"
     $response | ConvertTo-Json
-} catch {
+}
+catch {
     Write-Error "Failed to create service: $_"
     if ($_.ErrorDetails) {
         Write-Host "Error Details: $($_.ErrorDetails.Message)"
